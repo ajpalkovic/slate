@@ -25,7 +25,7 @@ const config = {
     path: path.resolve(__dirname, '../../build'),
     filename: '[name]-[hash].js',
   },
-  devtool: IS_PROD ? 'source-map' : 'inline-source-map',
+  devtool: IS_PROD ? 'source-map' : 'cheap-module-eval-source-map',
   devServer: {
     contentBase: './examples',
     publicPath: '/',

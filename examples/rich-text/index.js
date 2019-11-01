@@ -1,5 +1,5 @@
 import { Editor } from 'slate-react'
-import { Value } from 'slate'
+import { Value, Range } from 'slate'
 
 import React from 'react'
 import initialValue from './value.json'
@@ -74,6 +74,8 @@ class RichTextExample extends React.Component {
 
   ref = editor => {
     this.editor = editor
+    window.top.__editor = editor
+    window.top.__Range = Range
   }
 
   /**
@@ -99,7 +101,7 @@ class RichTextExample extends React.Component {
         <Editor
           spellCheck
           autoFocus
-          placeholder="Enter some rich text..."
+          placeholder={null}
           ref={this.ref}
           value={this.state.value}
           onChange={this.onChange}
