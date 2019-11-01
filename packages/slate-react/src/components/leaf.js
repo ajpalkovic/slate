@@ -45,30 +45,10 @@ class TextString extends React.Component {
           [DATA_ATTRS.STRING]: true,
         }}
       >
-        {this.props.children}
+        {this.props.zeroWidth ? '\uFEFF' : this.props.children}
       </span>
     )
   }
-}
-
-/**
- * Leaf strings without text, render as zero-width strings.
- *
- * @type {Component}
- */
-
-const ZeroWidthString = ({ length = 0, isLineBreak = false }) => {
-  return (
-    <span
-      {...{
-        [DATA_ATTRS.ZERO_WIDTH]: isLineBreak ? 'n' : 'z',
-        [DATA_ATTRS.LENGTH]: length,
-      }}
-    >
-      {'\uFEFF'}
-      {isLineBreak ? <br /> : null}
-    </span>
-  )
 }
 
 /**
@@ -102,7 +82,7 @@ const Leaf = props => {
   if (editor.query('isVoid', parent)) {
     // COMPAT: Render text inside void nodes with a zero-width space.
     // So the node can contain selection but the text is not visible.
-    children = <ZeroWidthString length={parent.text.length} />
+    children = <TextString zeroWidth length={parent.text.length} />
   } else if (
     text === '' &&
     parent.object === 'block' &&
@@ -112,12 +92,12 @@ const Leaf = props => {
     // COMPAT: If this is the last text node in an empty block, render a zero-
     // width space that will convert into a line break when copying and pasting
     // to support expected plain text.
-    children = <ZeroWidthString isLineBreak />
+    children = <TextString zeroWidth isLineBreak />
   } else if (text === '') {
     // COMPAT: If the text is empty, it's because it's on the edge of an inline
     // node, so we render a zero-width space so that the selection can be
     // inserted next to it still.
-    children = <ZeroWidthString />
+    children = <TextString zeroWidth />
   } else {
     // COMPAT: Browsers will collapse trailing new lines at the end of blocks,
     // so we need to add an extra trailing new lines to prevent that.

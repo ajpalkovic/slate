@@ -1,4 +1,5 @@
 import Debug from 'debug'
+import { Range } from 'slate'
 import Hotkeys from 'slate-hotkeys'
 import getWindow from 'get-window'
 import {
@@ -375,13 +376,13 @@ function BeforePlugin() {
    */
 
   function onInput(event, editor, next) {
-    if (isComposing) return
+    if (flushQueuedNativeOperations(editor)) {
+      return next()
+    }
+
     if (editor.value.selection.isBlurred) return
     isUserActionPerformed = true
     debug('onInput', { event })
-    // Native operations are applied to the DOM at this point.
-    // Apply the operations to the editor's `value`.
-    editor.controller.flushQueuedNativeOperations()
     next()
   }
 
@@ -459,8 +460,6 @@ function BeforePlugin() {
 
   function onSelect(event, editor, next) {
     if (isCopying) return
-    if (isComposing) return
-
     if (editor.readOnly) return
 
     // Save the new `activeElement`.
@@ -479,6 +478,48 @@ function BeforePlugin() {
   function clearUserActionPerformed() {
     isUserActionPerformed = false
     return null
+  }
+
+  function flushQueuedNativeOperations(editor) {
+    const { nextNativeOperation } = editor.controller.tmp
+    if (!nextNativeOperation) return false
+
+    const { selection, textNode } = nextNativeOperation
+    const {
+      anchorNode: currentTextNode,
+      anchorOffset: currentOffset,
+    } = window.getSelection()
+
+    if (textNode !== currentTextNode) {
+      throw Error('text node mismatch')
+    }
+
+    const key = selection.anchor.key
+    const path = editor.value.document.getPath(key)
+    const node = editor.value.document.getNode(key)
+
+    if (textNode.textContent.indexOf('\uFEFF') >= 0) {
+      textNode.textContent = textNode.textContent.replace('\uFEFF', '')
+    }
+
+    editor.insertTextAtRange(
+      Range.create({
+        anchor: { path, key, offset: 0 },
+        focus: { path, key, offset: node.text.length },
+      }),
+      textNode.textContent
+    )
+
+    editor.select(
+      Range.create({
+        anchor: { path, key, offset: currentOffset },
+        focus: { path, key, offset: currentOffset },
+      })
+    )
+
+    window.getSelection().collapse(currentTextNode, currentOffset)
+
+    editor.controller.tmp.nextNativeOperation = null
   }
 
   /**
