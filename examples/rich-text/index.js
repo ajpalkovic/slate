@@ -1,5 +1,5 @@
 import { Editor } from 'slate-react'
-import { Value } from 'slate'
+import { Value, Range } from 'slate'
 
 import React from 'react'
 import initialValue from './value.json'
@@ -74,6 +74,8 @@ class RichTextExample extends React.Component {
 
   ref = editor => {
     this.editor = editor
+    window.top.__editor = editor
+    window.top.__Range = Range
   }
 
   /**
@@ -99,16 +101,90 @@ class RichTextExample extends React.Component {
         <Editor
           spellCheck
           autoFocus
-          placeholder="Enter some rich text..."
+          placeholder={null}
           ref={this.ref}
           value={this.state.value}
           onChange={this.onChange}
           onKeyDown={this.onKeyDown}
           renderBlock={this.renderBlock}
           renderMark={this.renderMark}
+          decorateNode={this.decorateNode}
+          renderDecoration={this.renderDecoration}
         />
       </div>
     )
+  }
+
+  decorateNode = (node, editor, next) => {
+    if (node.object !== 'block') return next()
+
+    const match = node.text.match(/\*\*([^\*]+)\*\*/)
+
+    if (match) {
+      const decoration1 = {
+        type: 'syntax',
+        anchor: {
+          key: node.key,
+          offset: match.index,
+          path: editor.value.document.getPath(node.key),
+        },
+        focus: {
+          key: node.key,
+          offset: match.index + 2,
+          path: editor.value.document.getPath(node.key),
+        },
+      }
+      const decoration2 = {
+        type: 'bold',
+        anchor: {
+          key: node.key,
+          offset: match.index + 2,
+          path: editor.value.document.getPath(node.key),
+        },
+        focus: {
+          key: node.key,
+          offset: match.index + match[0].length - 2,
+          path: editor.value.document.getPath(node.key),
+        },
+      }
+      const decoration3 = {
+        type: 'syntax',
+        anchor: {
+          key: node.key,
+          offset: match.index + match[0].length - 2,
+          path: editor.value.document.getPath(node.key),
+        },
+        focus: {
+          key: node.key,
+          offset: match.index + match[0].length,
+          path: editor.value.document.getPath(node.key),
+        },
+      }
+      return [decoration1, decoration2, decoration3, ...next()]
+    }
+
+    return next()
+  }
+
+  renderDecoration = (props, editor, next) => {
+    const { children, decoration, attributes } = props
+
+    if (decoration === 'bold') {
+      return (
+        <span style={{ color: 'red' }} {...attributes}>
+          {children}
+        </span>
+      )
+    }
+
+    if (decoration === 'syntax') {
+      return (
+        <span style={{ color: 'grey' }} {...attributes}>
+          {children}
+        </span>
+      )
+    }
+    return next()
   }
 
   /**

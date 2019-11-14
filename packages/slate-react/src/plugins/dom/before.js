@@ -1,4 +1,5 @@
 import Debug from 'debug'
+import { Range } from 'slate'
 import Hotkeys from 'slate-hotkeys'
 import getWindow from 'get-window'
 import {
@@ -9,6 +10,7 @@ import {
 } from 'slate-dev-environment'
 
 import DATA_ATTRS from '../../constants/data-attributes'
+import SELECTORS from '../../constants/selectors'
 
 /**
  * Debug.
@@ -41,6 +43,9 @@ function BeforePlugin() {
    */
 
   function onBeforeInput(event, editor, next) {
+    console.log(`!! onBeforeInput with data:${event.data} inputType:${event.inputType} has2:${HAS_INPUT_EVENTS_LEVEL_2} isSynthetic:${!!event.nativeEvent}`)
+    if (isComposing) return
+
     const isSynthetic = !!event.nativeEvent
     if (editor.readOnly) return
     isUserActionPerformed = true
@@ -51,6 +56,7 @@ function BeforePlugin() {
     if (isSynthetic && HAS_INPUT_EVENTS_LEVEL_2) return
 
     debug('onBeforeInput', { event })
+
     next()
   }
 
@@ -112,8 +118,11 @@ function BeforePlugin() {
    */
 
   function onCompositionEnd(event, editor, next) {
+    console.log('!! onCompositionEnd hasOp:' + !!editor.controller.tmp.nextNativeOperation);
     const n = compositionCount
     isUserActionPerformed = true
+
+    flushQueuedNativeOperations(editor)
 
     // The `count` check here ensures that if another composition starts
     // before the timeout has closed out this one, we will abort unsetting the
@@ -124,6 +133,7 @@ function BeforePlugin() {
     })
 
     debug('onCompositionEnd', { event })
+
     next()
   }
 
@@ -150,6 +160,7 @@ function BeforePlugin() {
    */
 
   function onCompositionStart(event, editor, next) {
+    console.log(`!! onCompositionStart isCollapsed:${editor.value.selection.isCollapsed}`)
     isComposing = true
     compositionCount++
 
@@ -166,6 +177,17 @@ function BeforePlugin() {
       // erases selection as soon as composition starts and preventing <spans>
       // to be dropped.
       editor.delete()
+    } else {
+      if (editor.controller.tmp.nextNativeOperation) {
+        throw Error('YOWIE WOWIE: already have a native op!')
+      }
+
+      editor.controller.tmp.nextNativeOperation = {
+        selection: editor.value.selection,
+        slateSpanNode: window
+          .getSelection()
+          .anchorNode.parentElement.closest(SELECTORS.KEY),
+      }
     }
 
     debug('onCompositionStart', { event })
@@ -218,7 +240,9 @@ function BeforePlugin() {
 
   function onDragEnd(event, editor, next) {
     isDragging = false
+
     debug('onDragEnd', { event })
+
     next()
   }
 
@@ -232,6 +256,7 @@ function BeforePlugin() {
 
   function onDragEnter(event, editor, next) {
     debug('onDragEnter', { event })
+
     next()
   }
 
@@ -245,6 +270,7 @@ function BeforePlugin() {
 
   function onDragExit(event, editor, next) {
     debug('onDragExit', { event })
+
     next()
   }
 
@@ -258,6 +284,7 @@ function BeforePlugin() {
 
   function onDragLeave(event, editor, next) {
     debug('onDragLeave', { event })
+
     next()
   }
 
@@ -300,6 +327,7 @@ function BeforePlugin() {
     }
 
     debug('onDragOver', { event })
+
     next()
   }
 
@@ -313,7 +341,9 @@ function BeforePlugin() {
 
   function onDragStart(event, editor, next) {
     isDragging = true
+
     debug('onDragStart', { event })
+
     next()
   }
 
@@ -375,7 +405,13 @@ function BeforePlugin() {
    */
 
   function onInput(event, editor, next) {
+    console.log(`!! onInput isComposing:${isComposing} hasOp:${!!editor.controller.tmp.nextNativeOperation}`)
     if (isComposing) return
+
+    if (flushQueuedNativeOperations(editor)) {
+      return next()
+    }
+
     if (editor.value.selection.isBlurred) return
     isUserActionPerformed = true
     debug('onInput', { event })
@@ -423,7 +459,9 @@ function BeforePlugin() {
     }
 
     isUserActionPerformed = true
+
     debug('onKeyDown', { event })
+
     next()
   }
 
@@ -455,9 +493,8 @@ function BeforePlugin() {
    */
 
   function onSelect(event, editor, next) {
-    if (isCopying) return
     if (isComposing) return
-
+    if (isCopying) return
     if (editor.readOnly) return
 
     // Save the new `activeElement`.
@@ -476,6 +513,83 @@ function BeforePlugin() {
   function clearUserActionPerformed() {
     isUserActionPerformed = false
     return null
+  }
+
+  function flushQueuedNativeOperations(editor) {
+    console.log('!! flushQueuedNativeOperations')
+    const { nextNativeOperation } = editor.controller.tmp
+    if (!nextNativeOperation) return false
+    editor.controller.tmp.nextNativeOperation = null
+
+    const { selection: oldSelection, slateSpanNode } = nextNativeOperation
+    const {
+      anchorNode: textNode,
+      anchorOffset: currentOffset,
+    } = window.getSelection()
+
+    const currentSlateSpanNode = textNode.parentElement.closest(SELECTORS.KEY);
+    if (currentSlateSpanNode == null) throw Error('YOWIE WOWIE: could not find slate span')
+    if (slateSpanNode !== currentSlateSpanNode) throw Error('YOWIE WOWIE: slate span node mismatch')
+
+    const key = oldSelection.anchor.key
+    const path = editor.value.document.getPath(key)
+    const node = editor.value.document.getNode(key)
+    const slateNodeFromDomNode = editor.findNode(slateSpanNode)
+    if (slateNodeFromDomNode !== node) throw Error('YOWIE WOWIE: Slate nodes do not match up!')
+
+    const allChildTextNodes = slateSpanNode.querySelectorAll(`${SELECTORS.STRING}, ${SELECTORS.ZERO_WIDTH}`)
+    for (const childTextNode of allChildTextNodes) {
+      const isStringNode = childTextNode.hasAttribute(DATA_ATTRS.STRING);
+      const isZeroWidth = childTextNode.hasAttribute(DATA_ATTRS.ZERO_WIDTH);
+      if (isStringNode || isZeroWidth) {
+        const hasZeroWidthChars = childTextNode.textContent.indexOf('\uFEFF') >= 0;
+        if ((isStringNode && hasZeroWidthChars) || (isZeroWidth && childTextNode.textContent !== '\uFEFF')) {
+          for (const childNode of childTextNode.childNodes) {
+            if (childNode.nodeType === 1 && childNode.tagName === 'BR') {
+              childTextNode.removeChild(childNode);
+            }
+          }
+
+          console.log('    REPLACING ' + childTextNode.childNodes.length)
+          if (childTextNode.childNodes.length === 1) {
+            childTextNode.childNodes[0].textContent = childTextNode.childNodes[0].textContent.replace(/[\uFEFF]/g, '')
+            } else {
+            childTextNode.textContent = childTextNode.textContent.replace(/[\uFEFF]/g, '')
+          }
+
+          childTextNode.removeAttribute(DATA_ATTRS.ZERO_WIDTH)
+          childTextNode.removeAttribute(DATA_ATTRS.LENGTH)
+        }
+      }
+    }
+
+    console.log(`    textNode: ${textNode.textContent} ${textNode.textContent.length}`)
+    console.log(`    slateSpan: ${slateSpanNode.textContent} ${slateSpanNode.textContent.length}`)
+    console.log(`    slateNodeFromDomNode: ${slateNodeFromDomNode.text} ${slateNodeFromDomNode.text.length}`)
+    console.log('    flush selBeforeInsert:', JSON.stringify(editor.value.selection.toJSON()))
+    console.log(`    editor: len: ${editor.value.document.text.length} selSlate: ${editor.value.selection.anchor.offset} selNative: ${currentOffset} document: ${JSON.stringify(editor.value.document.toJSON())}`)
+
+    const newTextContent = slateSpanNode.textContent.replace(/[\uFEFF]/g, '');
+    editor.insertTextAtRange(
+      Range.create({
+        anchor: { path, key, offset: 0 },
+        focus: { path, key, offset: node.text.length },
+      }),
+      newTextContent
+    )
+
+    console.log('    flush selAfterInsert :', JSON.stringify(editor.value.selection.toJSON()))
+    console.log(`    editor: len: ${editor.value.document.text.length} selSlate: ${editor.value.selection.anchor.offset} selNative: ${currentOffset} document: ${JSON.stringify(editor.value.document.toJSON())}`)
+
+    if (textNode.parentElement == null) throw Error('YOWIE WOWIE: text node is no longer in the dom!')
+    const point = editor.findPoint(textNode, currentOffset)
+    if (point == null) throw Error('YOWIE WOWIE: Unable to translate dom position to slate position!')
+
+    editor.select(Range.create({ anchor: point, focus: point }))
+    console.log('    flush selAfterSelect1:', JSON.stringify(editor.value.selection.toJSON()))
+
+    window.getSelection().collapse(textNode, currentOffset)
+    console.log('    flush selAfterSelect2:', JSON.stringify(editor.value.selection.toJSON()))
   }
 
   /**

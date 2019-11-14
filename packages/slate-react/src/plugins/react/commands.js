@@ -36,7 +36,8 @@ function CommandsPlugin() {
     }
 
     // If the text is no different, abort.
-    if (text === domText) return
+    if (text.replace(/[\uFEFF]/g, '') === domText.replace(/[\uFEFF]/g, ''))
+      return
 
     let entire = selection.moveAnchorTo(path, 0).moveFocusTo(path, text.length)
 

@@ -8,6 +8,7 @@ import { IS_IOS, IS_IE, IS_EDGE } from 'slate-dev-environment'
 import cloneFragment from '../../utils/clone-fragment'
 import getEventTransfer from '../../utils/get-event-transfer'
 import setEventTransfer from '../../utils/set-event-transfer'
+import SELECTORS from '../../constants/selectors'
 
 /**
  * Debug.
@@ -43,9 +44,32 @@ function AfterPlugin(options = {}) {
     // If the event is synthetic, it's React's polyfill of `beforeinput` that
     // isn't a true `beforeinput` event with meaningful information. It only
     // gets triggered for character insertions, so we can just insert directly.
-    if (isSynthetic) {
-      event.preventDefault()
-      editor.insertText(event.data)
+    if (
+      isSynthetic
+      // ||
+      // event.inputType === 'insertText' ||
+      // event.inputType === 'insertReplacementText'
+    ) {
+      if (editor.controller.tmp.nextNativeOperation) {
+        throw Error('YOWIE WOWIE: already have a native op!')
+      }
+
+      // Single character inserts can be handled natively. Allows native rendering
+      // which preserves the native browser spell check handling.
+      const canNativelyEdit = editor.value.selection.isCollapsed
+
+      if (canNativelyEdit) {
+        editor.controller.tmp.nextNativeOperation = {
+          selection: editor.value.selection,
+          slateSpanNode: window
+            .getSelection()
+            .anchorNode.parentElement.closest(SELECTORS.KEY),
+        }
+      } else {
+        event.preventDefault()
+        editor.insertText(event.data, null, false)
+      }
+
       return next()
     }
 
@@ -418,8 +442,26 @@ function AfterPlugin(options = {}) {
       editor.blur()
     }
 
+    console.log(
+      '    flush selAfterOnInput:',
+      JSON.stringify(editor.value.selection.toJSON())
+    )
+
     const { anchorNode } = domSelection
     editor.reconcileDOMNode(anchorNode)
+
+    console.log(
+      '    flush selAfterReconci:',
+      JSON.stringify(editor.value.selection.toJSON())
+    )
+
+    console.log(
+      `    editor: len: ${editor.value.document.text.length} selSlate: ${
+        editor.value.selection.anchor.offset
+      } selNative: ${
+        window.getSelection().anchorOffset
+      } document: ${JSON.stringify(editor.value.document.toJSON())}`
+    )
 
     next()
   }

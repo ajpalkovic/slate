@@ -50,7 +50,6 @@
     "no-class-assign": "error",
     "no-console": "error",
     "no-const-assign": "error",
-    "no-debugger": "error",
     "no-dupe-args": "error",
     "no-dupe-class-members": "error",
     "no-dupe-keys": "error",

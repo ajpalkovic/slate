@@ -88,6 +88,9 @@ class Content extends React.Component {
    */
 
   componentDidCatch(error, info) {
+    console.error('!!  COMPONENT DID CATCH')
+    console.error(error)
+    console.error(info)
     debug('componentDidCatch', { error, info })
     // The call to `setState` is required despite not setting a value.
     // Without this call, React will not try to recreate the component tree.
@@ -209,6 +212,8 @@ class Content extends React.Component {
    */
 
   updateSelection = () => {
+    if (this.isComposing) return
+
     const { editor } = this.props
     const { value } = editor
     const { selection } = value
@@ -505,6 +510,9 @@ class Content extends React.Component {
         return
       }
     }
+
+    if (handler === 'onCompositionStart') this.isComposing = true
+    if (handler === 'onCompositionEnd') this.isComposing = false
 
     this.props.onEvent(handler, event)
   }
